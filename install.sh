@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ==============================================================================
-#  VPN-DROID-SERVER: One-Click Installer for Termux Android
+#  VPN-DROID-SERVER: One-Click Installer & Updater for Termux Android
 #  Repository: https://github.com/afcorpzone/vpn-droid-server
 # ==============================================================================
 
@@ -54,7 +54,37 @@ case "$ARCH" in
         exit 1
         ;;
 esac
-echo -e "Arsitektur CPU terdeteksi: ${C_GREEN}$ARCH${C_RESET} -> ${C_GREEN}$XRAY_ARCH${C_RESET}"
+echo -e "Arsitektur CPU: ${C_GREEN}$ARCH${C_RESET} -> ${C_GREEN}$XRAY_ARCH${C_RESET}"
+
+# Idempotency Check: Already installed?
+IS_UPDATE=0
+if [ -f "$TARGET_DIR/vpn.conf" ] && [ -f "$CONFIG_DIR/config.json" ]; then
+    echo ""
+    echo -e "${C_YELLOW}╔══════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "${C_YELLOW}║  [!] Terdeteksi Sistem Sudah Pernah Terpasang!       ║${C_RESET}"
+    echo -e "${C_YELLOW}╚══════════════════════════════════════════════════════╝${C_RESET}"
+    echo -e " ${C_WHITE}[1]${C_RESET} ${C_BGREEN}Update / Perbaiki Sistem${C_RESET} (Pertahankan Token, Domain & Password)"
+    echo -e " ${C_WHITE}[2]${C_RESET} ${C_YELLOW}Install Ulang Total${C_RESET} (Konfigurasi Ulang Token & Domain)"
+    echo -e " ${C_WHITE}[0]${C_RESET} ${C_RED}Batal / Keluar${C_RESET}"
+    echo ""
+    echo -ne "${C_WHITE}Pilih opsi [1/2/0, default: 1]: ${C_RESET}"
+    read -r REINSTALL_OPT
+
+    case "$REINSTALL_OPT" in
+        0|q|Q)
+            echo -e "\n${C_GREEN}Dibatalkan. Sistem lama tetap berjalan tanpa perubahan.${C_RESET}\n"
+            exit 0
+            ;;
+        2)
+            echo -e "\n${C_YELLOW}Melakukan instalasi ulang total...${C_RESET}"
+            IS_UPDATE=0
+            ;;
+        *)
+            echo -e "\n${C_GREEN}Melakukan update sistem tanpa mengubah konfigurasi akun...${C_RESET}"
+            IS_UPDATE=1
+            ;;
+    esac
+fi
 
 # 2. Install Dependencies
 echo -e "\n${C_CYAN}[2/6] Memasang Dependencies Package Termux...${C_RESET}"
@@ -84,63 +114,49 @@ cp "$TMP_XRAY/"*.dat "$PREFIX/share/xray/" 2>/dev/null || true
 rm -rf "$TMP_XRAY"
 echo -e "${C_BGREEN}✓ Xray-Core berhasil dipasang ke \$PREFIX/bin/xray${C_RESET}"
 
-# 4. Interactive Configuration Wizard
-echo -e "\n${C_CYAN}[4/6] Konfigurasi Akun & Cloudflare Tunnel...${C_RESET}"
+# 4. Configuration Wizard
+echo -e "\n${C_CYAN}[4/6] Menyiapkan Konfigurasi Akun & Tunnel...${C_RESET}"
 mkdir -p "$TARGET_DIR" "$CONFIG_DIR"
 
-# Check existing conf
-EXISTING_TOKEN=""
-EXISTING_DOMAIN=""
-if [ -f "$TARGET_DIR/vpn.conf" ]; then
+if [ "$IS_UPDATE" -eq 1 ]; then
+    # Keep existing configuration
     source "$TARGET_DIR/vpn.conf"
-    EXISTING_TOKEN="$CF_TOKEN"
-    EXISTING_DOMAIN="$CF_DOMAIN"
-fi
+    PASS=$(grep "\"password\"" "$CONFIG_DIR/config.json" 2>/dev/null | head -n 1 | sed "s/.*\"password\": *\"\([^\"]*\)\".*/\1/")
+    echo -e "${C_GREEN}✓ Konfigurasi lama berhasil dipertahankan:${C_RESET}"
+    echo -e "  Domain   : ${C_YELLOW}$CF_DOMAIN${C_RESET}"
+    echo -e "  Password : ${C_YELLOW}${PASS:0:8}****************${C_RESET}"
+else
+    # Interactive input
+    EXISTING_TOKEN=""
+    EXISTING_DOMAIN=""
 
-if [ -n "$EXISTING_TOKEN" ]; then
-    echo -e "Token lama ditemukan: ${C_YELLOW}${EXISTING_TOKEN:0:15}...${C_RESET}"
-    echo -ne "Gunakan token lama? (y/n, default: y): "
-    read -r USE_OLD_TOKEN
-    if [[ "$USE_OLD_TOKEN" =~ ^[Nn]$ ]]; then
-        EXISTING_TOKEN=""
-    fi
-fi
+    while [ -z "$EXISTING_TOKEN" ]; do
+        echo -ne "${C_WHITE}Masukkan Token Cloudflare Tunnel: ${C_RESET}"
+        read -r EXISTING_TOKEN
+        if [ -z "$EXISTING_TOKEN" ]; then
+            echo -e "${C_RED}Token tidak boleh kosong!${C_RESET}"
+        fi
+    done
 
-while [ -z "$EXISTING_TOKEN" ]; do
-    echo -ne "${C_WHITE}Masukkan Token Cloudflare Tunnel: ${C_RESET}"
-    read -r EXISTING_TOKEN
-    if [ -z "$EXISTING_TOKEN" ]; then
-        echo -e "${C_RED}Token tidak boleh kosong! Dapatkan token dari Cloudflare Zero Trust Dashboard.${C_RESET}"
-    fi
-done
+    while [ -z "$EXISTING_DOMAIN" ]; do
+        echo -ne "${C_WHITE}Masukkan Domain / Hostname (misal: in.domainku.com): ${C_RESET}"
+        read -r EXISTING_DOMAIN
+        if [ -z "$EXISTING_DOMAIN" ]; then
+            echo -e "${C_RED}Domain tidak boleh kosong!${C_RESET}"
+        fi
+    done
 
-if [ -n "$EXISTING_DOMAIN" ]; then
-    echo -e "Domain lama ditemukan: ${C_YELLOW}${EXISTING_DOMAIN}${C_RESET}"
-    echo -ne "Gunakan domain lama? (y/n, default: y): "
-    read -r USE_OLD_DOMAIN
-    if [[ "$USE_OLD_DOMAIN" =~ ^[Nn]$ ]]; then
-        EXISTING_DOMAIN=""
-    fi
-fi
-
-while [ -z "$EXISTING_DOMAIN" ]; do
-    echo -ne "${C_WHITE}Masukkan Domain / Hostname (misal: in.domainku.com): ${C_RESET}"
-    read -r EXISTING_DOMAIN
-    if [ -z "$EXISTING_DOMAIN" ]; then
-        echo -e "${C_RED}Domain tidak boleh kosong!${C_RESET}"
-    fi
-done
-
-# Save vpn.conf
-cat << EOF > "$TARGET_DIR/vpn.conf"
+    # Save vpn.conf
+    cat << EOF > "$TARGET_DIR/vpn.conf"
 CF_TOKEN="$EXISTING_TOKEN"
 CF_DOMAIN="$EXISTING_DOMAIN"
 EOF
 
-# Password generation
-PASS=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | tr '[:upper:]' '[:lower:]')
-if [ -z "$PASS" ]; then
-    PASS=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    # Generate fresh 32-char hex password
+    PASS=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | tr '[:upper:]' '[:lower:]')
+    if [ -z "$PASS" ]; then
+        PASS=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    fi
 fi
 
 # 5. Deploy Configuration and Scripts
@@ -264,7 +280,7 @@ echo -e "\n${C_CYAN}[6/6] Menjalankan VPN Service...${C_RESET}"
 
 echo ""
 echo -e "${C_BGREEN}╔══════════════════════════════════════════════════════╗${C_RESET}"
-echo -e "${C_BGREEN}║      INSTALASI SELESAI & SERVICE SEDANG BERJALAN     ║${C_RESET}"
+echo -e "${C_BGREEN}║      PROSES SELESAI & SERVICE SEDANG BERJALAN        ║${C_RESET}"
 echo -e "${C_BGREEN}╚══════════════════════════════════════════════════════╝${C_RESET}"
 echo ""
 echo -e "Ketik ${C_YELLOW}vpnmenu${C_RESET} atau ${C_YELLOW}vpn${C_RESET} kapan saja untuk membuka menu kontrol."
