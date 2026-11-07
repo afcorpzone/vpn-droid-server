@@ -43,7 +43,7 @@ echo -e "${C_BCYAN}╚═══════════════════�
 echo ""
 
 # 1. Environment Check
-echo -e "${C_CYAN}[1/6] Memeriksa Lingkungan Sistem...${C_RESET}"
+echo -e "${C_BCYAN}[1/6] Memeriksa Lingkungan Sistem...${C_RESET}"
 if [ -z "$PREFIX" ] || [ ! -d "$PREFIX" ]; then
     echo -e "${C_RED}Error: Skrip ini dirancang khusus untuk Termux di Android.${C_RESET}"
     exit 1
@@ -68,7 +68,8 @@ case "$ARCH" in
         exit 1
         ;;
 esac
-echo -e "Arsitektur CPU terdeteksi: ${C_GREEN}$ARCH${C_RESET} (Paket: $XRAY_ZIP)"
+echo -e "  ${C_GREEN}✓${C_RESET} Arsitektur CPU : ${C_WHITE}$ARCH${C_RESET} (${C_YELLOW}$XRAY_ZIP${C_RESET})"
+echo -e "  ${C_GREEN}✓${C_RESET} Direktori Base : ${C_WHITE}$PREFIX${C_RESET}"
 
 # Idempotency Check: Already installed?
 IS_UPDATE=0
@@ -100,32 +101,54 @@ if [ -f "$TARGET_DIR/vpn.conf" ] && [ -f "$CONFIG_DIR/config.json" ]; then
     esac
 fi
 
-# 2. Install Dependencies
-echo -e "\n${C_CYAN}[2/6] Memasang Dependencies Package Termux...${C_RESET}"
-pkg update -y >/dev/null 2>&1 || apt update -y >/dev/null 2>&1
-pkg install -y cloudflared libqrencode curl unzip >/dev/null 2>&1 || apt install -y cloudflared libqrencode curl unzip -y
+# 2. Install & Synchronize Dependencies
+echo -e "\n${C_BCYAN}[2/6] Memasang & Menyelaraskan Dependencies...${C_RESET}"
+echo -e "  ➜ Memperbarui index repository package..."
+pkg update -y || apt update -y
 
-# Fallback check for cloudflared (if repo mirror lacks it)
-if ! command -v cloudflared >/dev/null 2>&1; then
-    echo -e "${C_YELLOW}Mengunduh standalone cloudflared binary dari Cloudflare GitHub...${C_RESET}"
-    curl -L -s -o "$PREFIX/bin/cloudflared" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
-    chmod +x "$PREFIX/bin/cloudflared"
+echo -e "  ➜ Memasang/memperbarui openssl, libcurl, curl, cloudflared, libqrencode, unzip..."
+# Install openssl and libcurl together to prevent symbol mismatch
+pkg install -y openssl libcurl curl cloudflared libqrencode unzip || apt install -y openssl libcurl curl cloudflared libqrencode unzip
+
+# Health check & Auto-fix for curl linking error
+echo -e "  ➜ Memeriksa integritas pustaka curl..."
+if ! curl --version >/dev/null 2>&1; then
+    echo -e "  ${C_YELLOW}⚠ Terdeteksi library curl belum sinkron dengan OpenSSL. Memperbaiki...${C_RESET}"
+    pkg install -y --reinstall openssl libcurl curl || apt-get --reinstall install -y openssl libcurl curl
 fi
 
+if ! curl --version >/dev/null 2>&1; then
+    echo -e "  ${C_RED}Gagal menyelaraskan pustaka curl otomatis. Mencoba update paket...${C_RESET}"
+    pkg upgrade -y -o Dpkg::Options::="--force-confold" openssl libcurl curl
+fi
+echo -e "  ${C_GREEN}✓${C_RESET} Pustaka curl & OpenSSL sehat: ${C_WHITE}$(curl --version | head -n 1 | cut -d ' ' -f 1-3)${C_RESET}"
+
+# Fallback check for cloudflared
+if ! command -v cloudflared >/dev/null 2>&1; then
+    echo -e "  ${C_YELLOW}Mengunduh standalone cloudflared binary dari Cloudflare GitHub...${C_RESET}"
+    curl -L --progress-bar -o "$PREFIX/bin/cloudflared" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
+    chmod +x "$PREFIX/bin/cloudflared"
+fi
+echo -e "  ${C_GREEN}✓${C_RESET} Cloudflared: ${C_WHITE}$(cloudflared --version 2>/dev/null | cut -d ' ' -f 1-3 || echo 'Terpasang')${C_RESET}"
+
 # 3. Install Xray-Core Binary
-echo -e "\n${C_CYAN}[3/6] Memasang Xray-Core Native Android...${C_RESET}"
-XRAY_TAG=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4)
+echo -e "\n${C_BCYAN}[3/6] Memasang Xray-Core Native Android...${C_RESET}"
+echo -e "  ➜ Memeriksa rilis terbaru Xray-core..."
+XRAY_TAG=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4 || true)
 if [ -z "$XRAY_TAG" ]; then
     XRAY_TAG="v26.10.31"
 fi
-echo -e "Versi Xray: ${C_YELLOW}$XRAY_TAG${C_RESET}"
+echo -e "  ${C_GREEN}✓${C_RESET} Versi Xray yang akan dipasang: ${C_YELLOW}$XRAY_TAG${C_RESET}"
 
 TMP_XRAY="$PREFIX/tmp/xray-download"
 rm -rf "$TMP_XRAY"
 mkdir -p "$TMP_XRAY"
 XRAY_ZIP_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_TAG}/${XRAY_ZIP}"
 
-curl -L -s -o "$TMP_XRAY/xray.zip" "$XRAY_ZIP_URL"
+echo -e "  ➜ Mengunduh ${C_WHITE}$XRAY_ZIP${C_RESET}:"
+curl -L --progress-bar -o "$TMP_XRAY/xray.zip" "$XRAY_ZIP_URL"
+
+echo -e "  ➜ Mengekstrak binary Xray-core..."
 unzip -q -o "$TMP_XRAY/xray.zip" -d "$TMP_XRAY"
 cp "$TMP_XRAY/xray" "$PREFIX/bin/xray"
 chmod +x "$PREFIX/bin/xray"
@@ -133,19 +156,19 @@ chmod +x "$PREFIX/bin/xray"
 mkdir -p "$PREFIX/share/xray"
 cp "$TMP_XRAY/"*.dat "$PREFIX/share/xray/" 2>/dev/null || true
 rm -rf "$TMP_XRAY"
-echo -e "${C_BGREEN}✓ Xray-Core berhasil dipasang ke \$PREFIX/bin/xray${C_RESET}"
+echo -e "  ${C_GREEN}✓${C_RESET} Xray-Core berhasil dipasang: ${C_WHITE}$($PREFIX/bin/xray version | head -n 1)${C_RESET}"
 
 # 4. Configuration Wizard
-echo -e "\n${C_CYAN}[4/6] Menyiapkan Konfigurasi Akun & Tunnel...${C_RESET}"
+echo -e "\n${C_BCYAN}[4/6] Menyiapkan Konfigurasi Akun & Tunnel...${C_RESET}"
 mkdir -p "$TARGET_DIR" "$CONFIG_DIR"
 
 if [ "$IS_UPDATE" -eq 1 ]; then
     # Keep existing configuration
     source "$TARGET_DIR/vpn.conf"
     PASS=$(grep "\"password\"" "$CONFIG_DIR/config.json" 2>/dev/null | head -n 1 | sed "s/.*\"password\": *\"\([^\"]*\)\".*/\1/")
-    echo -e "${C_GREEN}✓ Konfigurasi lama berhasil dipertahankan:${C_RESET}"
-    echo -e "  Domain   : ${C_YELLOW}$CF_DOMAIN${C_RESET}"
-    echo -e "  Password : ${C_YELLOW}${PASS:0:8}****************${C_RESET}"
+    echo -e "  ${C_GREEN}✓${C_RESET} Konfigurasi lama dipertahankan:"
+    echo -e "    Domain   : ${C_YELLOW}$CF_DOMAIN${C_RESET}"
+    echo -e "    Password : ${C_YELLOW}${PASS:0:8}****************${C_RESET}"
 else
     # Interactive input
     EXISTING_TOKEN=""
@@ -155,7 +178,7 @@ else
         echo -ne "${C_WHITE}Masukkan Token Cloudflare Tunnel: ${C_RESET}"
         read_tty EXISTING_TOKEN
         if [ -z "$EXISTING_TOKEN" ]; then
-            echo -e "${C_RED}Token tidak boleh kosong!${C_RESET}"
+            echo -e "${C_RED}Token tidak boleh kosong! Dapatkan token dari Cloudflare Zero Trust Dashboard.${C_RESET}"
         fi
     done
 
@@ -184,9 +207,10 @@ EOF
 fi
 
 # 5. Deploy Configuration and Scripts
-echo -e "\n${C_CYAN}[5/6] Menyusun File Konfigurasi & Menu...${C_RESET}"
+echo -e "\n${C_BCYAN}[5/6] Menyusun File Konfigurasi & Menu...${C_RESET}"
 
 # Generate Xray config
+echo -e "  ➜ Menulis file konfigurasi Xray-core..."
 cat << EOF > "$CONFIG_DIR/config.json"
 {
   "log": {
@@ -241,6 +265,7 @@ cat << EOF > "$CONFIG_DIR/config.json"
 EOF
 
 # Install scripts (from local if exists, otherwise download from GitHub)
+echo -e "  ➜ Memasang modul skrip kontrol & menu..."
 SCRIPT_FILES=("start.sh" "stop.sh" "restart.sh" "status.sh" "account.sh" "menu.sh")
 for SF in "${SCRIPT_FILES[@]}"; do
     if [ -f "$SCRIPT_SOURCE/scripts/$SF" ]; then
@@ -297,9 +322,10 @@ case "$1" in
 esac
 EOF
 chmod +x "$PREFIX/bin/vpn"
+echo -e "  ${C_GREEN}✓${C_RESET} Perintah global ${C_YELLOW}vpn${C_RESET} dan ${C_YELLOW}vpnmenu${C_RESET} aktif."
 
 # 6. Start Service
-echo -e "\n${C_CYAN}[6/6] Menjalankan VPN Service...${C_RESET}"
+echo -e "\n${C_BCYAN}[6/6] Menjalankan VPN Service...${C_RESET}"
 "$TARGET_DIR/start.sh"
 
 echo ""
