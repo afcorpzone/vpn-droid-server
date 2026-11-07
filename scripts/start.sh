@@ -11,11 +11,11 @@ if [ -z "$CF_TOKEN" ]; then
     exit 1
 fi
 
+"$DIR/stop.sh" --keep-lock >/dev/null 2>&1 || true
+
 if command -v termux-wake-lock >/dev/null 2>&1; then
     termux-wake-lock
 fi
-
-"$DIR/stop.sh" >/dev/null 2>&1 || true
 
 echo "Starting Xray Core..."
 nohup xray run -config "$HOME/.config/xray/config.json" > "$DIR/xray.log" 2>&1 &

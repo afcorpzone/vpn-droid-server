@@ -14,8 +14,10 @@ if [ -f "$DIR/cloudflared.pid" ]; then
 fi
 pkill -f "cloudflared tunnel" 2>/dev/null || true
 
-if command -v termux-wake-unlock >/dev/null 2>&1; then
-    termux-wake-unlock
+if [ "$1" != "--keep-lock" ]; then
+    if command -v termux-wake-unlock >/dev/null 2>&1; then
+        termux-wake-unlock
+    fi
 fi
 
 echo "All stopped."

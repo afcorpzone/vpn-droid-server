@@ -106,9 +106,9 @@ echo -e "\n${C_BCYAN}[2/6] Memasang & Menyelaraskan Dependencies...${C_RESET}"
 echo -e "  ➜ Memperbarui index repository package..."
 pkg update -y || apt update -y
 
-echo -e "  ➜ Memasang/memperbarui openssl, libcurl, curl, cloudflared, libqrencode, unzip..."
+echo -e "  ➜ Memasang/memperbarui openssl, libcurl, curl, cloudflared, libqrencode, unzip, termux-tools..."
 # Install openssl and libcurl together to prevent symbol mismatch
-pkg install -y openssl libcurl curl cloudflared libqrencode unzip || apt install -y openssl libcurl curl cloudflared libqrencode unzip
+pkg install -y openssl libcurl curl cloudflared libqrencode unzip termux-tools || apt install -y openssl libcurl curl cloudflared libqrencode unzip termux-tools
 
 # Health check & Auto-fix for curl linking error
 echo -e "  ➜ Memeriksa integritas pustaka curl..."
