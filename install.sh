@@ -24,6 +24,17 @@ TARGET_DIR="$HOME/vpn-server"
 CONFIG_DIR="$HOME/.config/xray"
 SCRIPT_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 
+# Robust read helper that supports piped executions (e.g. curl | bash)
+read_tty() {
+    if [ -t 0 ]; then
+        read -r "$@"
+    elif [ -e /dev/tty ]; then
+        read -r "$@" < /dev/tty
+    else
+        read -r "$@"
+    fi
+}
+
 clear 2>/dev/null || printf "\033[2J\033[H"
 echo -e "${C_BCYAN}╔══════════════════════════════════════════════════════╗${C_RESET}"
 echo -e "${C_BCYAN}║${C_WHITE}         VPN-DROID-SERVER AUTO INSTALLER              ${C_BCYAN}║${C_RESET}"
@@ -41,20 +52,23 @@ fi
 ARCH=$(uname -m)
 case "$ARCH" in
     aarch64|arm64)
-        XRAY_ARCH="arm64-v8a"
+        XRAY_ZIP="Xray-android-arm64-v8a.zip"
+        CF_ARCH="arm64"
         ;;
     arm|armv7l|armv8l)
-        XRAY_ARCH="arm32-v7a"
+        XRAY_ZIP="Xray-linux-arm32-v7a.zip"
+        CF_ARCH="arm"
         ;;
     x86_64|amd64)
-        XRAY_ARCH="64"
+        XRAY_ZIP="Xray-android-amd64.zip"
+        CF_ARCH="amd64"
         ;;
     *)
         echo -e "${C_RED}Arsitektur CPU tidak didukung: $ARCH${C_RESET}"
         exit 1
         ;;
 esac
-echo -e "Arsitektur CPU: ${C_GREEN}$ARCH${C_RESET} -> ${C_GREEN}$XRAY_ARCH${C_RESET}"
+echo -e "Arsitektur CPU terdeteksi: ${C_GREEN}$ARCH${C_RESET} (Paket: $XRAY_ZIP)"
 
 # Idempotency Check: Already installed?
 IS_UPDATE=0
@@ -68,7 +82,7 @@ if [ -f "$TARGET_DIR/vpn.conf" ] && [ -f "$CONFIG_DIR/config.json" ]; then
     echo -e " ${C_WHITE}[0]${C_RESET} ${C_RED}Batal / Keluar${C_RESET}"
     echo ""
     echo -ne "${C_WHITE}Pilih opsi [1/2/0, default: 1]: ${C_RESET}"
-    read -r REINSTALL_OPT
+    read_tty REINSTALL_OPT
 
     case "$REINSTALL_OPT" in
         0|q|Q)
@@ -91,6 +105,13 @@ echo -e "\n${C_CYAN}[2/6] Memasang Dependencies Package Termux...${C_RESET}"
 pkg update -y >/dev/null 2>&1 || apt update -y >/dev/null 2>&1
 pkg install -y cloudflared libqrencode curl unzip >/dev/null 2>&1 || apt install -y cloudflared libqrencode curl unzip -y
 
+# Fallback check for cloudflared (if repo mirror lacks it)
+if ! command -v cloudflared >/dev/null 2>&1; then
+    echo -e "${C_YELLOW}Mengunduh standalone cloudflared binary dari Cloudflare GitHub...${C_RESET}"
+    curl -L -s -o "$PREFIX/bin/cloudflared" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
+    chmod +x "$PREFIX/bin/cloudflared"
+fi
+
 # 3. Install Xray-Core Binary
 echo -e "\n${C_CYAN}[3/6] Memasang Xray-Core Native Android...${C_RESET}"
 XRAY_TAG=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4)
@@ -102,7 +123,7 @@ echo -e "Versi Xray: ${C_YELLOW}$XRAY_TAG${C_RESET}"
 TMP_XRAY="$PREFIX/tmp/xray-download"
 rm -rf "$TMP_XRAY"
 mkdir -p "$TMP_XRAY"
-XRAY_ZIP_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_TAG}/Xray-android-${XRAY_ARCH}.zip"
+XRAY_ZIP_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_TAG}/${XRAY_ZIP}"
 
 curl -L -s -o "$TMP_XRAY/xray.zip" "$XRAY_ZIP_URL"
 unzip -q -o "$TMP_XRAY/xray.zip" -d "$TMP_XRAY"
@@ -132,7 +153,7 @@ else
 
     while [ -z "$EXISTING_TOKEN" ]; do
         echo -ne "${C_WHITE}Masukkan Token Cloudflare Tunnel: ${C_RESET}"
-        read -r EXISTING_TOKEN
+        read_tty EXISTING_TOKEN
         if [ -z "$EXISTING_TOKEN" ]; then
             echo -e "${C_RED}Token tidak boleh kosong!${C_RESET}"
         fi
@@ -140,7 +161,7 @@ else
 
     while [ -z "$EXISTING_DOMAIN" ]; do
         echo -ne "${C_WHITE}Masukkan Domain / Hostname (misal: in.domainku.com): ${C_RESET}"
-        read -r EXISTING_DOMAIN
+        read_tty EXISTING_DOMAIN
         if [ -z "$EXISTING_DOMAIN" ]; then
             echo -e "${C_RED}Domain tidak boleh kosong!${C_RESET}"
         fi
@@ -152,10 +173,13 @@ CF_TOKEN="$EXISTING_TOKEN"
 CF_DOMAIN="$EXISTING_DOMAIN"
 EOF
 
-    # Generate fresh 32-char hex password
+    # Generate fresh 32-char hex password with multiple fallbacks
     PASS=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | tr '[:upper:]' '[:lower:]')
     if [ -z "$PASS" ]; then
-        PASS=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+        PASS=$(head -c 16 /dev/urandom 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')
+    fi
+    if [ -z "$PASS" ]; then
+        PASS=$(date +%s%N | md5sum | head -c 32)
     fi
 fi
 
